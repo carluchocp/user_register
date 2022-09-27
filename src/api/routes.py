@@ -16,6 +16,10 @@ from flask_jwt_extended import JWTManager
 
 api = Blueprint('api', __name__)
 
+def method_allowed(request, method):
+    if request.method != method:
+        return jsonify({"error":"Method not allowed"}), 405
+
 def get_password(password, salt):
     return generate_password_hash(f"{password}{salt}")
 
@@ -23,10 +27,12 @@ def check_password(hash_password, password, salt):
     return check_password_hash(hash_password, f"{password}{salt}")
 
 @api.route('/private', methods=['GET'])
-@jwt_required()
-def handle_users():
-    user = User.query.get(get_jwt_identity())
-    return jsonify(user.serialize()), 200
+def get_all_posts():
+    posts = Post.query.all()
+    if posts is None:
+        return jsonify({"error": "No posts"}), 400
+    print(posts)
+    return  jsonify(list(map(lambda post: post.serialize(), posts))), 200
 
 @api.route("/signup", methods=['POST'])
 def signup_user():
@@ -46,7 +52,6 @@ def signup_user():
         else:
             salt = b64encode(os.urandom(32)).decode('utf-8')
             encrypted_password = get_password(password=password, salt=salt)
-            print(encrypted_password)
 
             new_user = User(username=username, email=email, password=encrypted_password, is_active=True, salt=salt)
             db.session.add(new_user)
@@ -59,7 +64,7 @@ def signup_user():
                 return jsonify({"message": f"Error {error.args}"}), 500
             return jsonify({"message":"internal server error"}), 500
 
-@api.route("/login", methods=['POST'])
+@api.route("/", methods=['POST'])
 def login_user():
     if request.method == 'POST':
         body = request.json
@@ -73,8 +78,17 @@ def login_user():
             return jsonify({"message":"Error, bad request"}), 400
         else:
             login_user = User.query.filter_by(email=email).first()
-            is_valid = check_password(login_user.password, password, login_user.salt)
-            print(is_valid)
-            token = create_access_token(identity=login_user.id)
-            print(token)
-            return jsonify(login_user.serialize())
+            if login_user is not None:
+                is_valid = check_password(login_user.password, password, login_user.salt)
+                print(is_valid)
+                if is_valid:
+                    token = create_access_token(identity=login_user.id)
+                    return jsonify({
+                    "token": token,
+                    }), 200
+                else:
+                    return jsonify("bad credentials"), 400
+            else:
+                return jsonify("bad credentials"), 400
+            
+    return jsonify({"message":"bad credentials"})
